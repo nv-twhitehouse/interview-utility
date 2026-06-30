@@ -27,8 +27,36 @@ class PullGsheetTests(unittest.TestCase):
 
         self.assertEqual(len(records), 1)
         self.assertEqual(records[0]["candidate_name"], "Alex Example")
-        self.assertEqual(records[0]["date_replied"], "Yes")
+        self.assertEqual(records[0]["date_replied"], "")
+        self.assertEqual(records[0]["response"], "Yes")
         self.assertEqual(records[0]["agent_notes"], "")
+
+    def test_restores_omitted_blank_date_replied_cell(self):
+        content = [
+            "Interviews",
+            (
+                "Search,LinkedIn,Name,Recruiter,Date Contacted,Date Replied,"
+                "Response,Date Scheduled,Teams Link,Interviewer,Date Completed,"
+                "Incentive Status,Requested Incentive,Gdoc Notes,Agent Notes,"
+            ),
+            (
+                "Search 2,https://linkedin.example/alex,,Tyler,6/25/2026,Yes,"
+                "6/29/2026,https://teams.example,Tyler,,Replied,DLI,"
+                "https://docs.example,"
+            ),
+            "shirts",
+        ]
+
+        record = parse_interviews(content)[0]
+
+        self.assertEqual(record["date_replied"], "")
+        self.assertEqual(record["response"], "Yes")
+        self.assertEqual(record["date_scheduled"], "6/29/2026")
+        self.assertEqual(record["teams_link"], "https://teams.example")
+        self.assertEqual(record["interviewer"], "Tyler")
+        self.assertEqual(record["incentive_status"], "Replied")
+        self.assertEqual(record["requested_incentive"], "DLI")
+        self.assertEqual(record["gdoc_notes"], "https://docs.example")
 
     def test_replaces_existing_table(self):
         records = parse_interviews(

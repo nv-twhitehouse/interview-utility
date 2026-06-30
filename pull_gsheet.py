@@ -117,6 +117,11 @@ def parse_interviews(content: list[str]) -> list[dict[str, str]]:
             row.pop()
         if not row:
             continue
+        # The Drive text backend sometimes omits a blank Date Replied cell instead
+        # of emitting an empty CSV field. A response enum in column F is the
+        # deterministic signature; restore the missing F cell before mapping G:O.
+        if len(row) > 5 and row[5].strip().casefold() in {"yes", "no", "maybe"}:
+            row.insert(5, "")
         if len(row) > len(INTERVIEW_FIELDS):
             raise RuntimeError(f"Interview row has too many fields: {len(row)}")
         values = [value.strip() for value in row]
