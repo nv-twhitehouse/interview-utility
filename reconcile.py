@@ -24,6 +24,8 @@ DEFAULT_DB = Path(__file__).with_name("outlook_objects.sqlite3")
 DEFAULT_REPORT = Path(__file__).with_name("reconciliation_report.csv")
 DEFAULT_REVIEW_QUEUE = Path(__file__).with_name("agent_review_queue.json")
 RULE_VERSION = "1"
+BOOKINGS_SENDER = "chataboutagentswithnvidia@nvidia.onmicrosoft.com"
+BOOKINGS_SERVICE = "chat about agents with nvidia"
 
 
 SCHEMA = """
@@ -319,7 +321,17 @@ def hydrate_messages(connection: sqlite3.Connection, limit: int) -> tuple[int, l
             "--json",
             "--utc",
         ]
-        result = subprocess.run(command, text=True, capture_output=True, check=False)
+        try:
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            errors.append(f"{row['source']}:{row['object_id']}: timed out after 60s")
+            continue
         if result.returncode:
             errors.append(f"{row['source']}:{row['object_id']}: exit {result.returncode}")
             continue
@@ -536,6 +548,51 @@ def detect_incentive(text: str) -> str | None:
     )
     matches = [name for name, pattern in options if pattern.search(text)]
     return matches[0] if len(matches) == 1 else None
+
+
+def parse_booking_notification(
+    subject: str | None, sender_address: str | None, body: str | None
+) -> dict[str, str] | None:
+    """Extract stable fields from outlook-cli's Markdown rendering of Bookings mail."""
+    if not subject or not subject.casefold().startswith("new booking:"):
+        return None
+    if (sender_address or "").casefold() != BOOKINGS_SENDER:
+        return None
+
+    text = (body or "").replace("\u00a0", " ")
+    if "Powered by Microsoft Bookings" not in text:
+        return None
+
+    result: dict[str, str] = {}
+    interviewer = re.search(
+        rf"{re.escape(BOOKINGS_SERVICE)}\s+with\s*\n+\s*([^\n]+)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if interviewer:
+        result["interviewer"] = interviewer.group(1).strip()
+
+    scheduled = re.search(
+        r"(?m)^\s*(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+"
+        r"([A-Z][a-z]+\s+\d{1,2},\s+\d{4})\s*$",
+        text,
+    )
+    if scheduled:
+        try:
+            parsed = datetime.strptime(scheduled.group(1), "%B %d, %Y")
+            result["date_scheduled"] = f"{parsed.month}/{parsed.day}/{parsed.year}"
+        except ValueError:
+            pass
+
+    teams = re.search(
+        r"\[Join your appointment\]\((https://teams\.microsoft\.com/[^)]+)\)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if teams:
+        result["teams_link"] = teams.group(1).strip()
+
+    return result or None
 
 
 def add_evidence(
@@ -771,19 +828,54 @@ def event_observations(connection: sqlite3.Connection, engagement_id: int) -> di
         raw = json.loads(event["raw_json"])
         if not raw.get("isCancelled"):
             active.append((event, raw))
-    if not active:
-        return {}
-    event, raw = active[0]
-    start = graph_value(raw, "start", "dateTime") or event["event_or_sent_at"]
-    teams = (
-        graph_value(raw, "onlineMeeting", "joinUrl")
-        or graph_value(raw, "onlineMeetingUrl")
-        or graph_value(raw, "location", "locationUri")
-    )
-    return {
-        "date_scheduled": (format_sheet_date(start), 0.98, event["evidence_id"]),
-        "teams_link": (teams, 0.98 if teams else 0.0, event["evidence_id"]),
-    }
+    observations: dict[str, tuple[str | None, float, int | None]] = {}
+    if active:
+        event, raw = active[0]
+        start = graph_value(raw, "start", "dateTime") or event["event_or_sent_at"]
+        teams = (
+            graph_value(raw, "onlineMeeting", "joinUrl")
+            or graph_value(raw, "onlineMeetingUrl")
+            or graph_value(raw, "location", "locationUri")
+        )
+        observations.update(
+            {
+                "date_scheduled": (
+                    format_sheet_date(start),
+                    0.98,
+                    event["evidence_id"],
+                ),
+                "teams_link": (teams, 0.98 if teams else 0.0, event["evidence_id"]),
+            }
+        )
+
+    bookings = connection.execute(
+        """
+        SELECT o.subject, o.sender_address, o.event_or_sent_at, b.body_text,
+               s.evidence_id
+        FROM engagement_objects AS eo
+        JOIN objects AS o ON o.source = eo.source AND o.object_id = eo.object_id
+        LEFT JOIN outlook_message_bodies AS b
+          ON b.source = o.source AND b.object_id = o.object_id
+        LEFT JOIN engagement_state_evidence AS s
+          ON s.engagement_id = eo.engagement_id AND s.source = o.source
+         AND s.object_id = o.object_id AND s.rule_id = 'schedule_booked'
+        WHERE eo.engagement_id = ? AND o.source = 'inbox'
+          AND lower(o.sender_address) = ?
+          AND lower(o.subject) LIKE 'new booking:%'
+        ORDER BY o.event_or_sent_at DESC, o.object_id DESC
+        """,
+        (engagement_id, BOOKINGS_SENDER),
+    ).fetchall()
+    for booking in bookings:
+        parsed = parse_booking_notification(
+            booking["subject"], booking["sender_address"], booking["body_text"]
+        )
+        if not parsed:
+            continue
+        for field, value in parsed.items():
+            observations.setdefault(field, (value, 0.97, booking["evidence_id"]))
+        break
+    return observations
 
 
 def build_findings(connection: sqlite3.Connection) -> None:

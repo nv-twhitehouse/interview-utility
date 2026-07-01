@@ -29,6 +29,7 @@ class ExportSheetCsvTests(unittest.TestCase):
             {
                 "date_scheduled": "7/7/2026",
                 "teams_link": "new-link",
+                "interviewer": "Amy Malone",
                 "date_completed": "7/7/2026",
                 "scheduling_state": "completed",
                 "incentive_state": "requested",
@@ -36,11 +37,11 @@ class ExportSheetCsvTests(unittest.TestCase):
                 "agent_summary": "Interview completed. Alex selected a DLI course.",
             },
         )
-        self.assertEqual(changed, 6)
+        self.assertEqual(changed, 7)
         self.assertEqual(merged["response"], "Yes")
         self.assertEqual(merged["date_scheduled"], "7/7/2026")
         self.assertEqual(merged["incentive_status"], "Replied")
-        self.assertEqual(merged["interviewer"], "Amy")
+        self.assertEqual(merged["interviewer"], "Amy Malone")
         self.assertEqual(merged["gdoc_notes"], "gdoc-link")
         self.assertEqual(
             merged["agent_notes"], "Interview completed. Alex selected a DLI course."

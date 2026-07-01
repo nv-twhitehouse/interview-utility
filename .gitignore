@@ -5,3 +5,5 @@ __pycache__/
 gsheet_*.json
 reconciliation_report.csv
 agent_review_queue.json
+google_sheet_reconciled.csv
+agent_summaries.json

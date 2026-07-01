@@ -86,6 +86,7 @@ def merge_interview(
     replacements = {
         "date_scheduled": derived.get("date_scheduled"),
         "teams_link": derived.get("teams_link"),
+        "interviewer": derived.get("interviewer"),
         "date_completed": derived.get("date_completed"),
         "requested_incentive": derived.get("requested_incentive"),
         "agent_notes": derived.get("agent_summary"),

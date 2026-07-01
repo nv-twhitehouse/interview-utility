@@ -11,6 +11,7 @@ from reconcile import (
     match_score,
     newest_message_text,
     normalize_name,
+    parse_booking_notification,
 )
 
 
@@ -38,6 +39,44 @@ class ReconcileTests(unittest.TestCase):
     def test_graph_fractional_timestamp_formats_as_sheet_date(self):
         self.assertEqual(
             format_sheet_date("2026-06-29T14:30:00.0000000"), "6/29/2026"
+        )
+
+    def test_parses_bookings_markdown_for_another_interviewer(self):
+        body = """New booking from
+
+Anuhya samudrala
+
+Chat about agents with NVIDIA with
+Amy Malone
+
+Friday, July 10, 2026
+10:30 AM - 11:00 AM
+
+(UTC-05:00) Eastern Time (US & Canada)
+
+[Join your appointment](https://teams.microsoft.com/l/meetup-join/example)
+
+Powered by Microsoft Bookings"""
+        self.assertEqual(
+            parse_booking_notification(
+                "New booking: Anuhya samudrala for Chat about agents with NVIDIA",
+                "ChataboutagentswithNVIDIA@NVIDIA.onmicrosoft.com",
+                body,
+            ),
+            {
+                "interviewer": "Amy Malone",
+                "date_scheduled": "7/10/2026",
+                "teams_link": "https://teams.microsoft.com/l/meetup-join/example",
+            },
+        )
+
+    def test_booking_parser_rejects_automatic_reply(self):
+        self.assertIsNone(
+            parse_booking_notification(
+                "Automatic reply: New booking: Example for Chat about agents with NVIDIA",
+                "amalone@nvidia.com",
+                "Powered by Microsoft Bookings",
+            )
         )
 
     def test_rerun_preserves_confirmed_identity_mapping(self):

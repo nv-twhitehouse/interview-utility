@@ -156,6 +156,12 @@ sheet matches, state evidence, current scheduling/incentive estimates,
 reconciliation findings, and an agent-review queue in SQLite. A human-readable
 `reconciliation_report.csv` is also generated and ignored by Git.
 
+Microsoft Bookings notifications are also treated as structured scheduling
+evidence. When a booking is assigned to another interviewer and therefore has no
+event on the current user's calendar, the hydrated notification supplies the
+scheduled date, Teams link, and interviewer. An active calendar event remains the
+preferred source when both are available.
+
 Pending ambiguous identity matches and sheet/Outlook conflicts are exported to
 `agent_review_queue.json`. Each packet constrains the allowed decisions and includes
 only the relevant ranked candidates or bounded email-thread evidence. Both the CSV
